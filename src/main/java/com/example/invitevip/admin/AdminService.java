@@ -1,0 +1,220 @@
+package com.example.invitevip.admin;
+
+import com.example.invitevip.admin.database.AdminRepository;
+import com.example.invitevip.admin.database.PermissionRepository;
+import com.example.invitevip.admin.database.AdminPermissionRepository;
+import com.example.invitevip.admin.dto.AdminRequest;
+import com.example.invitevip.admin.dto.AdminResponse;
+import com.example.invitevip.admin.entity.Admin;
+import com.example.invitevip.admin.entity.AdminPermission;
+import com.example.invitevip.admin.entity.AdminRole;
+import com.example.invitevip.admin.entity.Permission;
+import lombok.RequiredArgsConstructor;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
+
+import org.keycloak.admin.client.Keycloak;
+import org.keycloak.representations.idm.CredentialRepresentation;
+import org.keycloak.representations.idm.UserRepresentation;
+import jakarta.ws.rs.core.Response;
+
+import java.util.Comparator;
+import java.util.List;
+import java.util.Objects;
+import java.util.Set;
+import java.util.stream.Collectors;
+
+@Service
+@RequiredArgsConstructor
+@Transactional(readOnly = true)
+public class AdminService {
+
+    private final AdminRepository adminRepository;
+    private final PermissionRepository permissionRepository;
+    private final AdminPermissionRepository adminPermissionRepository;
+
+    private final Keycloak keycloakAdminClient;
+    private final String REALM_NAME = "invitevip";
+
+    public List<AdminResponse> findAllAdmins() {
+        return adminRepository.findAll().stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    public boolean exists(Long id) {
+        return adminRepository.existsById(id);
+    }
+
+    @Transactional
+    public AdminResponse save(AdminRequest request) {
+        validateDuplicateUsername(null, request.getUsername());
+
+        Admin admin = new Admin();
+        admin.setName(request.getName());
+        admin.setUsername(request.getUsername());
+        admin.setRole(resolveRole(request.getRole()));
+
+        if (request.getPermissions() != null) {
+            assignPermissions(admin, request.getPermissions());
+        }
+
+        Admin savedAdmin = adminRepository.save(admin);
+
+        createKeycloakUser(request);
+
+        return toResponse(savedAdmin);
+    }
+
+    @Transactional
+    public AdminResponse update(Long id, AdminRequest request) {
+        Admin admin = adminRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 관리자입니다."));
+
+        validateDuplicateUsername(id, request.getUsername());
+
+        admin.setName(request.getName());
+        admin.setUsername(request.getUsername());
+        admin.setRole(resolveRole(request.getRole()));
+
+        if (request.getPassword() != null && !request.getPassword().trim().isEmpty()) {
+            updateKeycloakPassword(request.getUsername(), request.getPassword());
+        }
+
+        admin.getAdminPermissions().clear();
+        adminPermissionRepository.deleteByAdminId(admin.getId());
+
+        if (request.getPermissions() != null) {
+            assignPermissions(admin, request.getPermissions());
+        }
+
+        return toResponse(admin);
+    }
+
+    @Transactional
+    public void delete(Long id) {
+        Admin admin = adminRepository.findById(id)
+                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 관리자입니다."));
+
+        deleteKeycloakUser(admin.getUsername());
+
+        adminRepository.delete(admin);
+    }
+
+    public List<AdminResponse> searchAdmins(String keyword) {
+        return adminRepository.findByNameContainingOrUsernameContaining(keyword, keyword).stream()
+                .map(this::toResponse)
+                .toList();
+    }
+
+    private void createKeycloakUser(AdminRequest request) {
+        UserRepresentation user = new UserRepresentation();
+        user.setUsername(request.getUsername());
+        user.setFirstName(request.getName());
+        user.setEnabled(true);
+
+        if (request.getPassword() != null && !request.getPassword().isBlank()) {
+            CredentialRepresentation credential = new CredentialRepresentation();
+            credential.setType(CredentialRepresentation.PASSWORD);
+            credential.setValue(request.getPassword());
+            credential.setTemporary(false);
+
+            user.setCredentials(List.of(credential));
+        }
+
+        Response response = keycloakAdminClient.realm(REALM_NAME).users().create(user);
+
+        if (response.getStatus() != 201) {
+            throw new RuntimeException("Keycloak 사용자 생성 실패 (아이디 중복 등): HTTP 상태 코드 " + response.getStatus());
+        }
+    }
+
+    private void updateKeycloakPassword(String username, String newPassword) {
+        List<UserRepresentation> users = keycloakAdminClient.realm(REALM_NAME).users().search(username, true);
+        if (!users.isEmpty()) {
+            String userId = users.get(0).getId();
+
+            CredentialRepresentation credential = new CredentialRepresentation();
+            credential.setType(CredentialRepresentation.PASSWORD);
+            credential.setValue(newPassword);
+            credential.setTemporary(false);
+
+            keycloakAdminClient.realm(REALM_NAME).users().get(userId).resetPassword(credential);
+        } else {
+            throw new IllegalArgumentException("Keycloak에서 해당 사용자를 찾을 수 없어 비밀번호를 변경할 수 없습니다.");
+        }
+    }
+
+    private void deleteKeycloakUser(String username) {
+        List<UserRepresentation> users = keycloakAdminClient.realm(REALM_NAME).users().search(username, true);
+        if (!users.isEmpty()) {
+            String userId = users.get(0).getId();
+            keycloakAdminClient.realm(REALM_NAME).users().get(userId).remove();
+        }
+    }
+
+    private void validateDuplicateUsername(Long id, String username) {
+        boolean exists = false;
+        if (id == null) {
+            exists = adminRepository.existsByUsername(username);
+        } else {
+            Admin existing = adminRepository.findByUsername(username).orElse(null);
+            if (existing != null && !existing.getId().equals(id)) {
+                exists = true;
+            }
+        }
+        if (exists) {
+            throw new IllegalArgumentException("이미 사용중인 아이디입니다.");
+        }
+    }
+
+    private AdminRole resolveRole(String roleName) {
+        try {
+            return AdminRole.valueOf(roleName);
+        } catch (IllegalArgumentException e) {
+            return AdminRole.ADMIN;
+        }
+    }
+
+    private void assignPermissions(Admin admin, List<String> permissionCodes) {
+        List<Permission> permissions = permissionRepository.findByCodeIn(permissionCodes);
+
+        Set<String> foundCodes = permissions.stream()
+                .map(Permission::getCode)
+                .collect(Collectors.toSet());
+
+        List<String> missingCodes = permissionCodes.stream()
+                .filter(code -> !foundCodes.contains(code))
+                .toList();
+
+        if (!missingCodes.isEmpty()) {
+            throw new IllegalArgumentException("존재하지 않는 권한 코드입니다: " + String.join(", ", missingCodes));
+        }
+
+        for (Permission permission : permissions) {
+            AdminPermission adminPermission = new AdminPermission();
+            adminPermission.setAdmin(admin);
+            adminPermission.setPermission(permission);
+            admin.getAdminPermissions().add(adminPermission);
+        }
+    }
+
+    private AdminResponse toResponse(Admin admin) {
+        AdminResponse response = new AdminResponse();
+        response.setId(admin.getId());
+        response.setName(admin.getName());
+        response.setUsername(admin.getUsername());
+        response.setRole(admin.getRole().name());
+
+        List<String> permissionCodes = admin.getAdminPermissions().stream()
+                .map(AdminPermission::getPermission)
+                .filter(Objects::nonNull)
+                .map(Permission::getCode)
+                .filter(Objects::nonNull)
+                .sorted(Comparator.naturalOrder())
+                .toList();
+
+        response.setPermissions(permissionCodes);
+        return response;
+    }
+}
