@@ -1,8 +1,9 @@
 package com.example.invitevip.customer;
 
-import com.example.invitevip.customer.database.CustomerSearchRepository;
-import com.example.invitevip.customer.entity.Customer;
-import com.example.invitevip.customer.entity.CustomerSearchEntity;
+import com.example.invitevip.customer.dto.CustomerRequest;
+import com.example.invitevip.customer.dto.CustomerResponse;
+import com.example.invitevip.customer.dto.CustomerSearchResponse;
+import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
@@ -16,28 +17,27 @@ import java.util.List;
 public class CustomerController {
 
     private final CustomerService customerService;
-    private final CustomerSearchRepository customerSearchRepository;
 
     @GetMapping
     @PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'CUSTOMER_READ')")
-    public List<Customer> effectCustomers() {
+    public List<CustomerResponse> effectCustomers() {
         return customerService.findAllCustomers();
     }
 
     @PostMapping
     @PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'CUSTOMER_ADD')")
-    public Customer saveCustomer(@RequestBody Customer customer) {
-        return customerService.save(customer);
+    public CustomerResponse saveCustomer(@Valid @RequestBody CustomerRequest request) {
+        return customerService.save(request);
     }
 
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'CUSTOMER_EDIT')")
-    public ResponseEntity<Customer> updateCustomer(@PathVariable Long id, @RequestBody Customer data) {
+    public ResponseEntity<CustomerResponse> updateCustomer(@PathVariable Long id, @Valid @RequestBody CustomerRequest request) {
         if (!customerService.exists(id)) {
             return ResponseEntity.notFound().build();
         }
 
-        Customer updated = customerService.update(id, data);
+        CustomerResponse updated = customerService.update(id, request);
         return ResponseEntity.ok(updated);
     }
 
@@ -54,8 +54,8 @@ public class CustomerController {
 
     @GetMapping("/search")
     @PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'CUSTOMER_SEARCH')")
-    public List<CustomerSearchEntity> searchCustomer(@RequestParam String keyword) {
-        return customerSearchRepository.searchAll(keyword);
+    public List<CustomerSearchResponse> searchCustomer(@RequestParam String keyword) {
+        return customerService.searchCustomers(keyword);
     }
 
     @PostMapping("/sync")

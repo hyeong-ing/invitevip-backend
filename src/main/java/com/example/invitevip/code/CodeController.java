@@ -1,7 +1,7 @@
 package com.example.invitevip.code;
 
 import com.example.invitevip.code.entity.CodeRequest;
-import com.example.invitevip.customer.entity.Customer;
+import com.example.invitevip.customer.dto.CustomerResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +21,7 @@ public class CodeController {
     }
 
     @PostMapping("/enter")
-    public ResponseEntity<Customer> enterCustomer(@RequestBody CodeRequest codeRequest) {
+    public ResponseEntity<CustomerResponse> enterCustomer(@RequestBody CodeRequest codeRequest) {
         return codeService.findByCode(codeRequest.getCode())
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());

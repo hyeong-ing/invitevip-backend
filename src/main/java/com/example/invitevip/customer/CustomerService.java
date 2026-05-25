@@ -4,6 +4,9 @@ import com.example.invitevip.customer.entity.Customer;
 import com.example.invitevip.customer.entity.CustomerSearchEntity;
 import com.example.invitevip.customer.database.CustomerRepository;
 import com.example.invitevip.customer.database.CustomerSearchRepository;
+import com.example.invitevip.customer.dto.CustomerRequest;
+import com.example.invitevip.customer.dto.CustomerResponse;
+import com.example.invitevip.customer.dto.CustomerSearchResponse;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,7 +17,7 @@ import java.util.List;
 public class CustomerService {
 
 
-    private CustomerRepository customerRepository;
+    private final CustomerRepository customerRepository;
     private final CustomerSearchRepository customerSearchRepository;
 
     @Autowired
@@ -24,8 +27,10 @@ public class CustomerService {
     }
 
 
-    public List<Customer> findAllCustomers() {
-        return customerRepository.findAll();
+    public List<CustomerResponse> findAllCustomers() {
+        return customerRepository.findAll().stream()
+                .map(this::toResponse)
+                .toList();
     }
 
     public boolean exists(Long id) {
@@ -39,38 +44,35 @@ public class CustomerService {
 
 
     @Transactional
-    public Customer save(Customer customer) {
+    public CustomerResponse save(CustomerRequest request) {
 
-        String code = customer.getCode();
+        String code = request.getCode();
 
         if (code != null && customerRepository.existsByCode(code)) {
             throw new DuplicateCodeException("초대코드가 중복되었습니다.");
         }
 
+        Customer customer = new Customer();
+        customer.setName(request.getName());
+        customer.setGrade(request.getGrade());
+        customer.setPhone(request.getPhone());
+        customer.setCode(request.getCode());
+        customer.setNote(request.getNote());
 
         Customer saved = customerRepository.save(customer);
 
-        CustomerSearchEntity ela = new CustomerSearchEntity();
-        ela.setId(saved.getId());
-        ela.setName(saved.getName());
-        ela.setGrade(saved.getGrade());
-        ela.setPhone(saved.getPhone());
-        ela.setCode(saved.getCode());
-        ela.setNote(saved.getNote());
-        ela.setNameChosung(getChosung(saved.getName()));
+        customerSearchRepository.save(toSearchEntity(saved));
 
-        customerSearchRepository.save(ela);
-
-        return saved;
+        return toResponse(saved);
     }
 
 
     @Transactional
-    public Customer update(Long id, Customer updateData) {
+    public CustomerResponse update(Long id, CustomerRequest request) {
         Customer customer = customerRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("고객을 찾을 수 없습니다."));
 
-        String newCode = updateData.getCode();
+        String newCode = request.getCode();
 
         if (newCode != null) {
             customerRepository.findByCode(newCode).ifPresent(found -> {
@@ -80,24 +82,15 @@ public class CustomerService {
             });
         }
 
-        customer.setName(updateData.getName());
-        customer.setGrade(updateData.getGrade());
-        customer.setPhone(updateData.getPhone());
-        customer.setCode(updateData.getCode());
-        customer.setNote(updateData.getNote());
+        customer.setName(request.getName());
+        customer.setGrade(request.getGrade());
+        customer.setPhone(request.getPhone());
+        customer.setCode(request.getCode());
+        customer.setNote(request.getNote());
 
-        CustomerSearchEntity ela = new CustomerSearchEntity();
-        ela.setId(customer.getId());
-        ela.setName(customer.getName());
-        ela.setGrade(customer.getGrade());
-        ela.setPhone(customer.getPhone());
-        ela.setCode(customer.getCode());
-        ela.setNote(customer.getNote());
-        ela.setNameChosung(getChosung(customer.getName()));
+        customerSearchRepository.save(toSearchEntity(customer));
 
-        customerSearchRepository.save(ela);
-
-        return customer;
+        return toResponse(customer);
     }
 
     @Transactional
@@ -111,17 +104,57 @@ public class CustomerService {
         List<Customer> list = customerRepository.findAll();
 
         for (Customer c : list) {
-            CustomerSearchEntity e = new CustomerSearchEntity();
-            e.setId(c.getId());
-            e.setName(c.getName());
-            e.setGrade(c.getGrade());
-            e.setPhone(c.getPhone());
-            e.setCode(c.getCode());
-            e.setNote(c.getNote());
-            e.setNameChosung(getChosung(c.getName()));
-
-            customerSearchRepository.save(e);
+            customerSearchRepository.save(toSearchEntity(c));
         }
+    }
+
+    public List<CustomerSearchResponse> searchCustomers(String keyword) {
+        String normalizedKeyword = normalizeKeyword(keyword);
+        if (normalizedKeyword.isBlank()) {
+            return List.of();
+        }
+
+        return customerSearchRepository.searchAll(normalizedKeyword).stream()
+                .map(this::toSearchResponse)
+                .toList();
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.trim();
+    }
+
+    public CustomerResponse toResponse(Customer customer) {
+        CustomerResponse response = new CustomerResponse();
+        response.setId(customer.getId());
+        response.setName(customer.getName());
+        response.setGrade(customer.getGrade());
+        response.setPhone(customer.getPhone());
+        response.setCode(customer.getCode());
+        response.setNote(customer.getNote());
+        return response;
+    }
+
+    private CustomerSearchResponse toSearchResponse(CustomerSearchEntity customer) {
+        CustomerSearchResponse response = new CustomerSearchResponse();
+        response.setId(customer.getId());
+        response.setName(customer.getName());
+        response.setGrade(customer.getGrade());
+        response.setPhone(customer.getPhone());
+        response.setCode(customer.getCode());
+        response.setNote(customer.getNote());
+        return response;
+    }
+
+    private CustomerSearchEntity toSearchEntity(Customer customer) {
+        CustomerSearchEntity entity = new CustomerSearchEntity();
+        entity.setId(customer.getId());
+        entity.setName(customer.getName());
+        entity.setGrade(customer.getGrade());
+        entity.setPhone(customer.getPhone());
+        entity.setCode(customer.getCode());
+        entity.setNote(customer.getNote());
+        entity.setNameChosung(getChosung(customer.getName()));
+        return entity;
     }
 
     private String getChosung(String text) {

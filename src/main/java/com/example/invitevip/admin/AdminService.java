@@ -102,9 +102,18 @@ public class AdminService {
     }
 
     public List<AdminResponse> searchAdmins(String keyword) {
-        return adminRepository.findByNameContainingOrUsernameContaining(keyword, keyword).stream()
+        String normalizedKeyword = normalizeKeyword(keyword);
+        if (normalizedKeyword.isBlank()) {
+            return List.of();
+        }
+
+        return adminRepository.findDistinctByNameContainingOrUsernameContaining(normalizedKeyword, normalizedKeyword).stream()
                 .map(this::toResponse)
                 .toList();
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.trim();
     }
 
     private void createKeycloakUser(AdminRequest request) {
