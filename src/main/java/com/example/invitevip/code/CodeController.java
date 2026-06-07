@@ -1,6 +1,6 @@
 package com.example.invitevip.code;
 
-import com.example.invitevip.code.entity.CodeRequest;
+import com.example.invitevip.code.dto.CodeRequest;
 import com.example.invitevip.customer.dto.CustomerResponse;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;

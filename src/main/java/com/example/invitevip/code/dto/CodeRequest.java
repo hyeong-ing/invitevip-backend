@@ -1,4 +1,4 @@
-package com.example.invitevip.code.entity;
+package com.example.invitevip.code.dto;
 
 
 import lombok.Getter;

@@ -3,6 +3,7 @@ package com.example.invitevip.code;
 import com.example.invitevip.customer.database.CustomerRepository;
 import com.example.invitevip.customer.dto.CustomerResponse;
 import com.example.invitevip.customer.CustomerService;
+import com.example.invitevip.customer.entity.InviteCode;
 import org.springframework.stereotype.Service;
 
 import java.util.Optional;
@@ -18,7 +19,11 @@ public class CodeService {
     }
 
     public Optional<CustomerResponse> findByCode(String code) {
-        return customerRepository.findByCode(code)
+        if (!InviteCode.isValid(code)) {
+            return Optional.empty();
+        }
+
+        return customerRepository.findByInviteCode(InviteCode.of(code))
                 .map(customerService::toResponse);
     }
 }

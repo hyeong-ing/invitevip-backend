@@ -2,7 +2,6 @@ package com.example.invitevip.admin;
 
 import com.example.invitevip.admin.database.AdminRepository;
 import com.example.invitevip.admin.database.PermissionRepository;
-import com.example.invitevip.admin.database.AdminPermissionRepository;
 import com.example.invitevip.admin.dto.AdminRequest;
 import com.example.invitevip.admin.dto.AdminResponse;
 import com.example.invitevip.admin.entity.Admin;
@@ -19,6 +18,7 @@ import org.keycloak.representations.idm.UserRepresentation;
 import jakarta.ws.rs.core.Response;
 
 import java.util.Comparator;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Objects;
 import java.util.Set;
@@ -31,7 +31,6 @@ public class AdminService {
 
     private final AdminRepository adminRepository;
     private final PermissionRepository permissionRepository;
-    private final AdminPermissionRepository adminPermissionRepository;
 
     private final Keycloak keycloakAdminClient;
     private final String REALM_NAME = "invitevip";
@@ -55,9 +54,7 @@ public class AdminService {
         admin.setUsername(request.getUsername());
         admin.setRole(resolveRole(request.getRole()));
 
-        if (request.getPermissions() != null) {
-            assignPermissions(admin, request.getPermissions());
-        }
+        replacePermissions(admin, request.getPermissions());
 
         Admin savedAdmin = adminRepository.save(admin);
 
@@ -81,12 +78,7 @@ public class AdminService {
             updateKeycloakPassword(request.getUsername(), request.getPassword());
         }
 
-        admin.getAdminPermissions().clear();
-        adminPermissionRepository.deleteByAdminId(admin.getId());
-
-        if (request.getPermissions() != null) {
-            assignPermissions(admin, request.getPermissions());
-        }
+        replacePermissions(admin, request.getPermissions());
 
         return toResponse(admin);
     }
@@ -185,14 +177,27 @@ public class AdminService {
         }
     }
 
-    private void assignPermissions(Admin admin, List<String> permissionCodes) {
-        List<Permission> permissions = permissionRepository.findByCodeIn(permissionCodes);
+    private void replacePermissions(Admin admin, List<String> permissionCodes) {
+        Set<String> requestedCodes = permissionCodes == null
+                ? Set.of()
+                : permissionCodes.stream()
+                .filter(Objects::nonNull)
+                .map(String::trim)
+                .filter(code -> !code.isBlank())
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        if (requestedCodes.isEmpty()) {
+            admin.getAdminPermissions().clear();
+            return;
+        }
+
+        List<Permission> permissions = permissionRepository.findByCodeIn(List.copyOf(requestedCodes));
 
         Set<String> foundCodes = permissions.stream()
                 .map(Permission::getCode)
                 .collect(Collectors.toSet());
 
-        List<String> missingCodes = permissionCodes.stream()
+        List<String> missingCodes = requestedCodes.stream()
                 .filter(code -> !foundCodes.contains(code))
                 .toList();
 
@@ -200,7 +205,25 @@ public class AdminService {
             throw new IllegalArgumentException("존재하지 않는 권한 코드입니다: " + String.join(", ", missingCodes));
         }
 
+        admin.getAdminPermissions().removeIf(adminPermission -> {
+            Permission permission = adminPermission.getPermission();
+            return permission == null
+                    || permission.getCode() == null
+                    || !requestedCodes.contains(permission.getCode());
+        });
+
+        Set<String> existingCodes = admin.getAdminPermissions().stream()
+                .map(AdminPermission::getPermission)
+                .filter(Objects::nonNull)
+                .map(Permission::getCode)
+                .filter(Objects::nonNull)
+                .collect(Collectors.toSet());
+
         for (Permission permission : permissions) {
+            if (existingCodes.contains(permission.getCode())) {
+                continue;
+            }
+
             AdminPermission adminPermission = new AdminPermission();
             adminPermission.setAdmin(admin);
             adminPermission.setPermission(permission);

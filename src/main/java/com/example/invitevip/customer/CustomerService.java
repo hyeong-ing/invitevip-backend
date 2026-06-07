@@ -1,14 +1,17 @@
 package com.example.invitevip.customer;
 
 import com.example.invitevip.customer.entity.Customer;
-import com.example.invitevip.customer.entity.CustomerSearchEntity;
+import com.example.invitevip.customer.entity.InviteCode;
 import com.example.invitevip.customer.database.CustomerRepository;
 import com.example.invitevip.customer.database.CustomerSearchRepository;
 import com.example.invitevip.customer.dto.CustomerRequest;
 import com.example.invitevip.customer.dto.CustomerResponse;
 import com.example.invitevip.customer.dto.CustomerSearchResponse;
+import com.example.invitevip.customer.event.CustomerSearchSyncEvent;
+import com.example.invitevip.customer.mapper.CustomerSearchMapper;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -19,11 +22,18 @@ public class CustomerService {
 
     private final CustomerRepository customerRepository;
     private final CustomerSearchRepository customerSearchRepository;
+    private final CustomerSearchMapper customerSearchMapper;
+    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
-    public CustomerService(CustomerRepository customerRepository,  CustomerSearchRepository customerSearchRepository) {
+    public CustomerService(CustomerRepository customerRepository,
+                           CustomerSearchRepository customerSearchRepository,
+                           CustomerSearchMapper customerSearchMapper,
+                           ApplicationEventPublisher eventPublisher) {
         this.customerRepository = customerRepository;
         this.customerSearchRepository = customerSearchRepository;
+        this.customerSearchMapper = customerSearchMapper;
+        this.eventPublisher = eventPublisher;
     }
 
 
@@ -39,29 +49,29 @@ public class CustomerService {
 
     public boolean isCodeDuplicatedForCreate(String code) {
         if (code == null || code.isBlank()) return false;
-        return customerRepository.existsByCode(code);
+        return customerRepository.existsByInviteCode(InviteCode.of(code));
     }
 
 
     @Transactional
     public CustomerResponse save(CustomerRequest request) {
 
-        String code = request.getCode();
+        InviteCode inviteCode = InviteCode.of(request.getCode());
 
-        if (code != null && customerRepository.existsByCode(code)) {
+        if (customerRepository.existsByInviteCode(inviteCode)) {
             throw new DuplicateCodeException("초대코드가 중복되었습니다.");
         }
 
-        Customer customer = new Customer();
-        customer.setName(request.getName());
-        customer.setGrade(request.getGrade());
-        customer.setPhone(request.getPhone());
-        customer.setCode(request.getCode());
-        customer.setNote(request.getNote());
+        Customer customer = Customer.create(
+                request.getName(),
+                request.getGrade(),
+                request.getPhone(),
+                inviteCode,
+                request.getNote()
+        );
 
         Customer saved = customerRepository.save(customer);
-
-        customerSearchRepository.save(toSearchEntity(saved));
+        eventPublisher.publishEvent(CustomerSearchSyncEvent.upsert(saved.getId()));
 
         return toResponse(saved);
     }
@@ -72,23 +82,23 @@ public class CustomerService {
         Customer customer = customerRepository.findById(id)
                 .orElseThrow(() -> new IllegalArgumentException("고객을 찾을 수 없습니다."));
 
-        String newCode = request.getCode();
+        InviteCode newInviteCode = InviteCode.of(request.getCode());
 
-        if (newCode != null) {
-            customerRepository.findByCode(newCode).ifPresent(found -> {
-                if (!found.getId().equals(id)) {
-                    throw new DuplicateCodeException("초대코드가 중복되었습니다.");
-                }
-            });
-        }
+        customerRepository.findByInviteCode(newInviteCode).ifPresent(found -> {
+            if (!found.getId().equals(id)) {
+                throw new DuplicateCodeException("초대코드가 중복되었습니다.");
+            }
+        });
 
-        customer.setName(request.getName());
-        customer.setGrade(request.getGrade());
-        customer.setPhone(request.getPhone());
-        customer.setCode(request.getCode());
-        customer.setNote(request.getNote());
+        customer.update(
+                request.getName(),
+                request.getGrade(),
+                request.getPhone(),
+                newInviteCode,
+                request.getNote()
+        );
 
-        customerSearchRepository.save(toSearchEntity(customer));
+        eventPublisher.publishEvent(CustomerSearchSyncEvent.upsert(customer.getId()));
 
         return toResponse(customer);
     }
@@ -96,7 +106,7 @@ public class CustomerService {
     @Transactional
     public void delete(Long id) {
         customerRepository.deleteById(id);
-        customerSearchRepository.deleteById(id);
+        eventPublisher.publishEvent(CustomerSearchSyncEvent.delete(id));
     }
 
     @Transactional
@@ -104,7 +114,7 @@ public class CustomerService {
         List<Customer> list = customerRepository.findAll();
 
         for (Customer c : list) {
-            customerSearchRepository.save(toSearchEntity(c));
+            customerSearchRepository.save(customerSearchMapper.toSearchEntity(c));
         }
     }
 
@@ -115,7 +125,7 @@ public class CustomerService {
         }
 
         return customerSearchRepository.searchAll(normalizedKeyword).stream()
-                .map(this::toSearchResponse)
+                .map(customerSearchMapper::toResponse)
                 .toList();
     }
 
@@ -132,53 +142,6 @@ public class CustomerService {
         response.setCode(customer.getCode());
         response.setNote(customer.getNote());
         return response;
-    }
-
-    private CustomerSearchResponse toSearchResponse(CustomerSearchEntity customer) {
-        CustomerSearchResponse response = new CustomerSearchResponse();
-        response.setId(customer.getId());
-        response.setName(customer.getName());
-        response.setGrade(customer.getGrade());
-        response.setPhone(customer.getPhone());
-        response.setCode(customer.getCode());
-        response.setNote(customer.getNote());
-        return response;
-    }
-
-    private CustomerSearchEntity toSearchEntity(Customer customer) {
-        CustomerSearchEntity entity = new CustomerSearchEntity();
-        entity.setId(customer.getId());
-        entity.setName(customer.getName());
-        entity.setGrade(customer.getGrade());
-        entity.setPhone(customer.getPhone());
-        entity.setCode(customer.getCode());
-        entity.setNote(customer.getNote());
-        entity.setNameChosung(getChosung(customer.getName()));
-        return entity;
-    }
-
-    private String getChosung(String text) {
-        if (text == null) return "";
-
-        String[] CHO = {
-                "ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ",
-                "ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"
-        };
-
-        StringBuilder sb = new StringBuilder();
-
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-
-            if (c >= '가' && c <= '힣') {
-                int uniVal = c - 0xAC00;
-                int choIdx = uniVal / 588;
-                sb.append(CHO[choIdx]);
-            } else if (c != ' ') {
-                sb.append(c);
-            }
-        }
-        return sb.toString();
     }
 
 }
