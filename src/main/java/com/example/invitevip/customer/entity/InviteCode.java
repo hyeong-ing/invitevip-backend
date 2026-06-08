@@ -12,13 +12,14 @@ import java.util.Objects;
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class InviteCode {
 
+    private static final String CODE_PATTERN = "\\d{4}";
+
     private String value;
 
     private InviteCode(String value) {
         if (!isValid(value)) {
-            throw new IllegalArgumentException("초대코드는 1자 이상 4자 이하로 입력해야 합니다.");
+            throw new IllegalArgumentException("초대코드는 숫자 4자리로 입력해야 합니다.");
         }
-
         this.value = value.trim();
     }
 
@@ -27,7 +28,7 @@ public class InviteCode {
     }
 
     public static boolean isValid(String value) {
-        return value != null && !value.isBlank() && value.trim().length() <= 4;
+        return value != null && value.trim().matches(CODE_PATTERN);
     }
 
     @Override

@@ -2,6 +2,7 @@ package com.example.invitevip.code;
 
 import com.example.invitevip.code.dto.CodeRequest;
 import com.example.invitevip.customer.dto.CustomerResponse;
+import jakarta.validation.Valid;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -21,7 +22,7 @@ public class CodeController {
     }
 
     @PostMapping("/enter")
-    public ResponseEntity<CustomerResponse> enterCustomer(@RequestBody CodeRequest codeRequest) {
+    public ResponseEntity<CustomerResponse> enterCustomer(@Valid @RequestBody CodeRequest codeRequest) {
         return codeService.findByCode(codeRequest.getCode())
                 .map(ResponseEntity::ok)
                 .orElse(ResponseEntity.notFound().build());
