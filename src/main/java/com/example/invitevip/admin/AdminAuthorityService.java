@@ -20,6 +20,8 @@ import java.util.Set;
 @Transactional
 public class AdminAuthorityService {
 
+    private static final String CUSTOMER_READ = "CUSTOMER_READ";
+
     private final AdminRepository adminRepository;
 
     public Set<GrantedAuthority> loadAuthorities(Jwt jwt) {
@@ -60,7 +62,8 @@ public class AdminAuthorityService {
 
             if (permission != null
                     && permission.getCode() != null
-                    && !permission.getCode().isBlank()) {
+                    && !permission.getCode().isBlank()
+                    && !CUSTOMER_READ.equals(permission.getCode().trim().toUpperCase())) {
                 authorities.add(new SimpleGrantedAuthority(
                         permission.getCode().trim().toUpperCase()
                 ));

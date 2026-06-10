@@ -31,6 +31,8 @@ import java.util.stream.Collectors;
 @Transactional(readOnly = true)
 public class AdminService {
 
+    private static final String CUSTOMER_READ = "CUSTOMER_READ";
+
     private final AdminRepository adminRepository;
     private final PermissionRepository permissionRepository;
 
@@ -236,6 +238,7 @@ public class AdminService {
                 .filter(Objects::nonNull)
                 .map(String::trim)
                 .filter(code -> !code.isBlank())
+                .filter(code -> !CUSTOMER_READ.equals(code))
                 .collect(Collectors.toCollection(LinkedHashSet::new));
 
         if (requestedCodes.isEmpty()) {
@@ -295,6 +298,7 @@ public class AdminService {
                 .filter(Objects::nonNull)
                 .map(Permission::getCode)
                 .filter(Objects::nonNull)
+                .filter(code -> !CUSTOMER_READ.equals(code))
                 .sorted(Comparator.naturalOrder())
                 .toList();
 
