@@ -1,9 +1,13 @@
 package com.example.invitevip.customer;
 
 import com.example.invitevip.customer.entity.Customer;
-import com.example.invitevip.customer.entity.CustomerSearchEntity;
+import com.example.invitevip.customer.entity.InviteCode;
 import com.example.invitevip.customer.database.CustomerRepository;
 import com.example.invitevip.customer.database.CustomerSearchRepository;
+import com.example.invitevip.customer.dto.CustomerRequest;
+import com.example.invitevip.customer.dto.CustomerResponse;
+import com.example.invitevip.customer.dto.CustomerSearchResponse;
+import com.example.invitevip.customer.mapper.CustomerSearchMapper;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.stereotype.Service;
@@ -14,95 +18,82 @@ import java.util.List;
 public class CustomerService {
 
 
-    private CustomerRepository customerRepository;
+    private final CustomerRepository customerRepository;
     private final CustomerSearchRepository customerSearchRepository;
+    private final CustomerSearchMapper customerSearchMapper;
 
     @Autowired
-    public CustomerService(CustomerRepository customerRepository,  CustomerSearchRepository customerSearchRepository) {
+    public CustomerService(CustomerRepository customerRepository,
+                           CustomerSearchRepository customerSearchRepository,
+                           CustomerSearchMapper customerSearchMapper) {
         this.customerRepository = customerRepository;
         this.customerSearchRepository = customerSearchRepository;
+        this.customerSearchMapper = customerSearchMapper;
     }
 
 
-    public List<Customer> findAllCustomers() {
-        return customerRepository.findAll();
+    public List<CustomerResponse> findAllCustomers() {
+        return customerRepository.findAll().stream()
+                .map(this::toResponse)
+                .toList();
     }
-
-    public boolean exists(Long id) {
-        return customerRepository.existsById(id);
-    }
-
-    public boolean isCodeDuplicatedForCreate(String code) {
-        if (code == null || code.isBlank()) return false;
-        return customerRepository.existsByCode(code);
-    }
-
 
     @Transactional
-    public Customer save(Customer customer) {
+    public CustomerResponse save(CustomerRequest request) {
 
-        String code = customer.getCode();
+        InviteCode inviteCode = InviteCode.of(request.getCode());
 
-        if (code != null && customerRepository.existsByCode(code)) {
+        if (customerRepository.existsByInviteCode(inviteCode)) {
             throw new DuplicateCodeException("초대코드가 중복되었습니다.");
         }
 
+        Customer customer = Customer.create(
+                request.getName(),
+                request.getGrade(),
+                request.getPhone(),
+                inviteCode,
+                request.getNote()
+        );
 
         Customer saved = customerRepository.save(customer);
+        customerSearchRepository.save(customerSearchMapper.toSearchEntity(saved));
 
-        CustomerSearchEntity ela = new CustomerSearchEntity();
-        ela.setId(saved.getId());
-        ela.setName(saved.getName());
-        ela.setGrade(saved.getGrade());
-        ela.setPhone(saved.getPhone());
-        ela.setCode(saved.getCode());
-        ela.setNote(saved.getNote());
-        ela.setNameChosung(getChosung(saved.getName()));
-
-        customerSearchRepository.save(ela);
-
-        return saved;
+        return toResponse(saved);
     }
 
 
     @Transactional
-    public Customer update(Long id, Customer updateData) {
+    public CustomerResponse update(Long id, CustomerRequest request) {
         Customer customer = customerRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("고객을 찾을 수 없습니다."));
+                .orElseThrow(() -> new CustomerNotFoundException(id));
 
-        String newCode = updateData.getCode();
+        InviteCode newInviteCode = InviteCode.of(request.getCode());
 
-        if (newCode != null) {
-            customerRepository.findByCode(newCode).ifPresent(found -> {
-                if (!found.getId().equals(id)) {
-                    throw new DuplicateCodeException("초대코드가 중복되었습니다.");
-                }
-            });
-        }
+        customerRepository.findByInviteCode(newInviteCode).ifPresent(found -> {
+            if (!found.getId().equals(id)) {
+                throw new DuplicateCodeException("초대코드가 중복되었습니다.");
+            }
+        });
 
-        customer.setName(updateData.getName());
-        customer.setGrade(updateData.getGrade());
-        customer.setPhone(updateData.getPhone());
-        customer.setCode(updateData.getCode());
-        customer.setNote(updateData.getNote());
+        customer.update(
+                request.getName(),
+                request.getGrade(),
+                request.getPhone(),
+                newInviteCode,
+                request.getNote()
+        );
 
-        CustomerSearchEntity ela = new CustomerSearchEntity();
-        ela.setId(customer.getId());
-        ela.setName(customer.getName());
-        ela.setGrade(customer.getGrade());
-        ela.setPhone(customer.getPhone());
-        ela.setCode(customer.getCode());
-        ela.setNote(customer.getNote());
-        ela.setNameChosung(getChosung(customer.getName()));
+        customerSearchRepository.save(customerSearchMapper.toSearchEntity(customer));
 
-        customerSearchRepository.save(ela);
-
-        return customer;
+        return toResponse(customer);
     }
 
     @Transactional
     public void delete(Long id) {
-        customerRepository.deleteById(id);
+        Customer customer = customerRepository.findById(id)
+                .orElseThrow(() -> new CustomerNotFoundException(id));
+
+        customerRepository.delete(customer);
         customerSearchRepository.deleteById(id);
     }
 
@@ -111,41 +102,34 @@ public class CustomerService {
         List<Customer> list = customerRepository.findAll();
 
         for (Customer c : list) {
-            CustomerSearchEntity e = new CustomerSearchEntity();
-            e.setId(c.getId());
-            e.setName(c.getName());
-            e.setGrade(c.getGrade());
-            e.setPhone(c.getPhone());
-            e.setCode(c.getCode());
-            e.setNote(c.getNote());
-            e.setNameChosung(getChosung(c.getName()));
-
-            customerSearchRepository.save(e);
+            customerSearchRepository.save(customerSearchMapper.toSearchEntity(c));
         }
     }
 
-    private String getChosung(String text) {
-        if (text == null) return "";
-
-        String[] CHO = {
-                "ㄱ","ㄲ","ㄴ","ㄷ","ㄸ","ㄹ","ㅁ","ㅂ","ㅃ","ㅅ",
-                "ㅆ","ㅇ","ㅈ","ㅉ","ㅊ","ㅋ","ㅌ","ㅍ","ㅎ"
-        };
-
-        StringBuilder sb = new StringBuilder();
-
-        for (int i = 0; i < text.length(); i++) {
-            char c = text.charAt(i);
-
-            if (c >= '가' && c <= '힣') {
-                int uniVal = c - 0xAC00;
-                int choIdx = uniVal / 588;
-                sb.append(CHO[choIdx]);
-            } else if (c != ' ') {
-                sb.append(c);
-            }
+    public List<CustomerSearchResponse> searchCustomers(String keyword) {
+        String normalizedKeyword = normalizeKeyword(keyword);
+        if (normalizedKeyword.isBlank()) {
+            return List.of();
         }
-        return sb.toString();
+
+        return customerSearchRepository.searchAll(normalizedKeyword).stream()
+                .map(customerSearchMapper::toResponse)
+                .toList();
+    }
+
+    private String normalizeKeyword(String keyword) {
+        return keyword == null ? "" : keyword.trim();
+    }
+
+    public CustomerResponse toResponse(Customer customer) {
+        CustomerResponse response = new CustomerResponse();
+        response.setId(customer.getId());
+        response.setName(customer.getName());
+        response.setGrade(customer.getGrade());
+        response.setPhone(customer.getPhone());
+        response.setCode(customer.getCode());
+        response.setNote(customer.getNote());
+        return response;
     }
 
 }

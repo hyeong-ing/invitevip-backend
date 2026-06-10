@@ -12,10 +12,8 @@ public class AuthMeResponse {
     private String username;
     private List<String> authorities;
     private boolean superAdmin;
-    private boolean customerRead;
     private boolean customerSearch;
     private boolean customerAdd;
     private boolean customerEdit;
     private boolean customerDelete;
 }
-

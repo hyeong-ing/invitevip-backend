@@ -2,7 +2,6 @@ package com.example.invitevip.admin;
 
 import com.example.invitevip.admin.dto.AdminRequest;
 import com.example.invitevip.admin.dto.AdminResponse;
-import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.access.prepost.PreAuthorize;
 import org.springframework.web.bind.annotation.*;
@@ -37,9 +36,6 @@ public class AdminController {
 
     @PutMapping("/{id}")
     public ResponseEntity<?> updateAdmin(@PathVariable Long id, @RequestBody AdminRequest request) {
-        if (!adminService.exists(id)) {
-            return ResponseEntity.notFound().build();
-        }
         try {
             AdminResponse updatedAdmin = adminService.update(id, request);
             return ResponseEntity.ok(updatedAdmin);
@@ -50,11 +46,6 @@ public class AdminController {
 
     @DeleteMapping("/{id}")
     public ResponseEntity<String> deleteAdmin(@PathVariable Long id) {
-
-        if (!adminService.exists(id)) {
-            return ResponseEntity.notFound().build();
-        }
-
         adminService.delete(id);
         return ResponseEntity.ok("관리자가 삭제되었습니다.");
     }

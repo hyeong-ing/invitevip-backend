@@ -29,7 +29,6 @@ public class AuthController {
                 .username(authentication.getName())
                 .authorities(List.copyOf(authorities))
                 .superAdmin(superAdmin)
-                .customerRead(superAdmin || authorities.contains("CUSTOMER_READ"))
                 .customerSearch(superAdmin || authorities.contains("CUSTOMER_SEARCH"))
                 .customerAdd(superAdmin || authorities.contains("CUSTOMER_ADD"))
                 .customerEdit(superAdmin || authorities.contains("CUSTOMER_EDIT"))
