@@ -45,10 +45,6 @@ public class AdminService {
                 .toList();
     }
 
-    public boolean exists(Long id) {
-        return adminRepository.existsById(id);
-    }
-
     @Transactional
     public AdminResponse save(AdminRequest request) {
         validateDuplicateUsername(null, request.getUsername());
@@ -72,7 +68,7 @@ public class AdminService {
     @Transactional
     public AdminResponse update(Long id, AdminRequest request) {
         Admin admin = adminRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 관리자입니다."));
+                .orElseThrow(() -> new AdminNotFoundException(id));
 
         validateDuplicateUsername(id, request.getUsername());
 
@@ -93,7 +89,7 @@ public class AdminService {
     @Transactional
     public void delete(Long id) {
         Admin admin = adminRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("존재하지 않는 관리자입니다."));
+                .orElseThrow(() -> new AdminNotFoundException(id));
 
         String keycloakId = getKeycloakId(admin, admin.getUsername());
 
