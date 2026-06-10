@@ -7,11 +7,9 @@ import com.example.invitevip.customer.database.CustomerSearchRepository;
 import com.example.invitevip.customer.dto.CustomerRequest;
 import com.example.invitevip.customer.dto.CustomerResponse;
 import com.example.invitevip.customer.dto.CustomerSearchResponse;
-import com.example.invitevip.customer.event.CustomerSearchSyncEvent;
 import com.example.invitevip.customer.mapper.CustomerSearchMapper;
 import jakarta.transaction.Transactional;
 import org.springframework.beans.factory.annotation.Autowired;
-import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.stereotype.Service;
 
 import java.util.List;
@@ -23,17 +21,14 @@ public class CustomerService {
     private final CustomerRepository customerRepository;
     private final CustomerSearchRepository customerSearchRepository;
     private final CustomerSearchMapper customerSearchMapper;
-    private final ApplicationEventPublisher eventPublisher;
 
     @Autowired
     public CustomerService(CustomerRepository customerRepository,
                            CustomerSearchRepository customerSearchRepository,
-                           CustomerSearchMapper customerSearchMapper,
-                           ApplicationEventPublisher eventPublisher) {
+                           CustomerSearchMapper customerSearchMapper) {
         this.customerRepository = customerRepository;
         this.customerSearchRepository = customerSearchRepository;
         this.customerSearchMapper = customerSearchMapper;
-        this.eventPublisher = eventPublisher;
     }
 
 
@@ -42,16 +37,6 @@ public class CustomerService {
                 .map(this::toResponse)
                 .toList();
     }
-
-    public boolean exists(Long id) {
-        return customerRepository.existsById(id);
-    }
-
-    public boolean isCodeDuplicatedForCreate(String code) {
-        if (code == null || code.isBlank()) return false;
-        return customerRepository.existsByInviteCode(InviteCode.of(code));
-    }
-
 
     @Transactional
     public CustomerResponse save(CustomerRequest request) {
@@ -71,7 +56,7 @@ public class CustomerService {
         );
 
         Customer saved = customerRepository.save(customer);
-        eventPublisher.publishEvent(CustomerSearchSyncEvent.upsert(saved.getId()));
+        customerSearchRepository.save(customerSearchMapper.toSearchEntity(saved));
 
         return toResponse(saved);
     }
@@ -80,7 +65,7 @@ public class CustomerService {
     @Transactional
     public CustomerResponse update(Long id, CustomerRequest request) {
         Customer customer = customerRepository.findById(id)
-                .orElseThrow(() -> new IllegalArgumentException("고객을 찾을 수 없습니다."));
+                .orElseThrow(() -> new CustomerNotFoundException(id));
 
         InviteCode newInviteCode = InviteCode.of(request.getCode());
 
@@ -98,15 +83,18 @@ public class CustomerService {
                 request.getNote()
         );
 
-        eventPublisher.publishEvent(CustomerSearchSyncEvent.upsert(customer.getId()));
+        customerSearchRepository.save(customerSearchMapper.toSearchEntity(customer));
 
         return toResponse(customer);
     }
 
     @Transactional
     public void delete(Long id) {
-        customerRepository.deleteById(id);
-        eventPublisher.publishEvent(CustomerSearchSyncEvent.delete(id));
+        Customer customer = customerRepository.findById(id)
+                .orElseThrow(() -> new CustomerNotFoundException(id));
+
+        customerRepository.delete(customer);
+        customerSearchRepository.deleteById(id);
     }
 
     @Transactional

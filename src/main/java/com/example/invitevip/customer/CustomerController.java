@@ -33,10 +33,6 @@ public class CustomerController {
     @PutMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'CUSTOMER_EDIT')")
     public ResponseEntity<CustomerResponse> updateCustomer(@PathVariable Long id, @Valid @RequestBody CustomerRequest request) {
-        if (!customerService.exists(id)) {
-            return ResponseEntity.notFound().build();
-        }
-
         CustomerResponse updated = customerService.update(id, request);
         return ResponseEntity.ok(updated);
     }
@@ -44,10 +40,6 @@ public class CustomerController {
     @DeleteMapping("/{id}")
     @PreAuthorize("hasAnyAuthority('ROLE_SUPER_ADMIN', 'CUSTOMER_DELETE')")
     public ResponseEntity<Void> deleteCustomer(@PathVariable Long id) {
-        if (!customerService.exists(id)) {
-            return ResponseEntity.notFound().build();
-        }
-
         customerService.delete(id);
         return ResponseEntity.ok().build();
     }
