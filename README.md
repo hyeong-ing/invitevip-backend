@@ -71,56 +71,84 @@
 <br/><br/>
 
 ### 🔶 핵심 로직
-1) 소셜 로그인 콜백 처리 <br/>
-카카오/네이버 로그인 버튼을 클릭하면 사용자는 외부 OAuth 로그인 페이지로 이동합니다.
+1) 초대코드 검증 및 등급별 페이지 이동 <br/>
+사용자가 4자리 초대코드를 입력하면 백엔드에서 DB에 저장된 초대 코드와 일치하는 고객을 조회합니다.
 
-+ 소셜 로그인 후 전달받은 인가 코드를 Vue 콜백 페이지에서 추출합니다.
-+ Spring Boot 백엔드로 전달해 사용자 정보를 받아오는 흐름을 구현했습니다.
++ 초대코드는 InviteCode 값 객체를 통해 숫자 4자리인지 검증합니다.
++ 유효한 코드라면 고객 정보를 반환합니다.
++ 그리고 프론트엔드에서 고객 등급에 따라 VIP, VVIP, DIAMOND 페이지로 이동합니다.
 
-```
-const params = new URLSearchParams(window.location.search);
-const code = params.get("code");
+```java
+public Optional<CustomerResponse> findByCode(String code) {
+    if (!InviteCode.isValid(code)) {
+        return Optional.empty();
+    }
 
-const response = await axios.post("http://localhost:8080/oauth/kakao", {
-  code: code
-});
+    return customerRepository.findByInviteCode(InviteCode.of(code))
+            .map(customerService::toResponse);
+}
 
-localStorage.setItem("displayName", response.data.nickname);
-this.$router.replace("/main");
+const grade = (data.grade || "").trim().toUpperCase();
+
+if (grade === "VIP") navigate("/vip");
+else if (grade === "VVIP") navigate("/vvip");
+else if (grade === "DIAMOND") navigate("/diamond");
 ```
 
 <br/><br/>
 
 ----
 
-2) 중복 확인 상태 관리 <br/>
-회원가입 화면에서 아이디와 이메일 중복 확인을 진행한 뒤 회원가입을 할 수 있도로 구성했습니다.
+2) 고객 등록∙수정 시 초대코드 중복 방지 <br/>
+고객을 등록하거나 수정할 때 동일한 초대코드가 저장되지 않도록 검증했습니다.
 
-+ 아이디와 이메일 중복 확인 여부를 상태값으로 관리합니다.
-+ 입력값이 변경되면 다시 중복 확인을 하도록 처리했습니다.
++ 둥록 시에는 같은 초대코드가 이미 존재하는지 확인합니다.
++ 수정 시에는 자기 자신의 기존 코드만 허용하고 다른 고객이 사용하는 코드만 중복으로 판단합니다.
++ DB에서는 `code`컬럼에 unique 제약 조건을 두어 한 번 더 중복을 방지했습니다.
 
-```
-watch: {
-  userId() {
-    this.idDuplicate = true;
-  },
-
-  email() {
-    this.emailDuplicate = true;
-  }
+```java
+if (customerRepository.existsByInviteCode(inviteCode)) {
+    throw new DuplicateCodeException("초대코드가 중복되었습니다.");
 }
+customerRepository.findByInviteCode(newInviteCode).ifPresent(found -> {
+    if (!found.getId().equals(id)) {
+        throw new DuplicateCodeException("초대코드가 중복되었습니다.");
+    }
+});
 ```
-```
-if (this.idDuplicate) {
-  alert("아이디 중복 확인을 해주세요.");
-  return;
-}
 
-if (this.emailDuplicate) {
-  alert("이메일 중복 확인을 해주세요.");
-  return;
-}
+<br/><br/>
+
+----
+
+3) MySQL 저장 후 Elasticsearch 검색 인덱스 함께 반영 <br/>
+고객 원본 데이터는 MySQL에 저장하고, 검색에 사용할 데이터는 Elasticsearch 인덱스에도 함께 반영했습니다.
+
++ 고객 등록 시 MySQL에 고객 정보를 저장합니다.
++ 저장된 고객 정보를 검색용 Entity로 변환해 Elasticsearch에도 저장합니다.
++ 고객 수정∙삭제 시에도 Elasticsearch 데이터를 함께 갱신하거나 삭제해 검색 결과가 최신 상태를 유지하도록 했습니다.
+
+```java
+Customer saved = customerRepository.save(customer);
+customerSearchRepository.save(customerSearchMapper.toSearchEntity(saved));
+customer.update(
+        request.getName(),
+        request.getGrade(),
+        request.getPhone(),
+        newInviteCode,
+        request.getNote()
+);
+
+customerSearchRepository.save(customerSearchMapper.toSearchEntity(customer));
+customerRepository.delete(customer);
+customerSearchRepository.deleteById(id);
 ```
+
+<br/><br/>
+
+----
+
+
 
 <br/><br/><br/>
 
