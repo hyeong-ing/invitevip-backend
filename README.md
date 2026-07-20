@@ -1,4 +1,4 @@
-# 🔒 Invite and Manage 🔑
+# 🔒 Invite and Management 🔑
 
 <br/>
 
@@ -62,10 +62,11 @@
 <br/><br/>
 
 ### 🔶 프로젝트 목표
-+ Vue와 Spring을 연결해 웹사이트 만들기
-+ 회원 정보를 백엔드 API와 연결하기
-+ 중복확인 등 사용자 행동에 따른 화면 상태 관리하기
-+ 카카오·네이버 소셜 로그인을 구현하며 인가 코드와 토큰 흐름 이해하기
++ DB에 저장된 초대코드를 조회하고 해당 고객 등급별 안내 페이지로 이동하는 흐룸 구현하기.
++ MySQL과 JPA로 고객, 관리자, 권한 데이터를 관리하는 실제 DB 기반 프로젝트 경험하기.
++ Elasticsearch를 활용한 고객 검색 기능 구현하기.
++ Keycloak과 Spring Security를 활용한 로그인/로그아웃 및 권한 기반 접근 제어 경험하기.
++ Docker를 사용해 Keycloak, Elasticsearch 같은 외부 시스템을 실행하고 백엔드와 연동하는 흐름 이해하기.
 
 <br/><br/>
 
