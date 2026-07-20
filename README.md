@@ -24,7 +24,7 @@
 ### 🔶 프로젝트 관련 링크
 
 + [Blog (프로젝트 기록)](https://post-this.tistory.com/category/%F0%9F%92%BB%20%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8/%F0%9F%90%A0%ED%9A%8C%EC%9B%90%EA%B0%80%EC%9E%85%20%ED%8E%98%EC%9D%B4%EC%A7%80%F0%9F%90%A0)
-+ Youtube (동작화면)
++ YouTube (동작화면)
 + [Figma (다이어그램)](https://www.figma.com/board/pcWxgbFCWQUnnIW3W1hrZi/%ED%9A%8C%EC%9B%90%EA%B0%80%EC%9E%85-%EB%A1%9C%EA%B7%B8%EC%9D%B8-%ED%94%84%EB%A1%9C%EC%A0%9D%ED%8A%B8?node-id=0-1&t=NPUJ2hrnFEb7meeQ-1)
 
 
@@ -62,7 +62,7 @@
 <br/><br/>
 
 ### 🔶 프로젝트 목표
-+ DB에 저장된 초대코드를 조회하고 해당 고객 등급별 안내 페이지로 이동하는 흐룸 구현하기.
++ DB에 저장된 초대코드를 조회하고 해당 고객 등급별 안내 페이지로 이동하는 흐름 구현하기.
 + MySQL과 JPA로 고객, 관리자, 권한 데이터를 관리하는 실제 DB 기반 프로젝트 경험하기.
 + Elasticsearch를 활용한 고객 검색 기능 구현하기.
 + Keycloak과 Spring Security를 활용한 로그인/로그아웃 및 권한 기반 접근 제어 경험하기.
@@ -72,7 +72,7 @@
 
 ### 🔶 핵심 로직
 1) 초대코드 검증 및 등급별 페이지 이동 <br/>
-사용자가 4자리 초대코드를 입력하면 백엔드에서 DB에 저장된 초대 코드와 일치하는 고객을 조회합니다.
+사용자가 4자리 초대코드를 입력하면 백엔드에서 DB에 저장된 초대코드와 일치하는 고객을 조회합니다.
 
 + 초대코드는 InviteCode 값 객체를 통해 숫자 4자리인지 검증합니다.
 + 유효한 코드라면 고객 정보를 반환합니다.
@@ -88,7 +88,7 @@ public Optional<CustomerResponse> findByCode(String code) {
             .map(customerService::toResponse);
 }
 ```
-```java
+```javascript
 const grade = (data.grade || "").trim().toUpperCase();
 
 if (grade === "VIP") navigate("/vip");
@@ -103,9 +103,9 @@ else if (grade === "DIAMOND") navigate("/diamond");
 2) 고객 등록∙수정 시 초대코드 중복 방지 <br/>
 고객을 등록하거나 수정할 때 동일한 초대코드가 저장되지 않도록 검증했습니다.
 
-+ 둥록 시에는 같은 초대코드가 이미 존재하는지 확인합니다.
++ 등록 시에는 같은 초대코드가 이미 존재하는지 확인합니다.
 + 수정 시에는 자기 자신의 기존 코드만 허용하고 다른 고객이 사용하는 코드만 중복으로 판단합니다.
-+ DB에서는 `code`컬럼에 unique 제약 조건을 두어 한 번 더 중복을 방지했습니다.
++ DB에서는 `code` 컬럼에 unique 제약 조건을 두어 한 번 더 중복을 방지했습니다.
 
 ```java
 if (customerRepository.existsByInviteCode(inviteCode)) {
@@ -268,8 +268,44 @@ for (AdminPermission adminPermission : admin.getAdminPermissions()) {
 + admin_id, permission_id 조합에 unique 제약을 두어 중복 저장을 방지했습니다.
 + orphanRemoval = true를 사용해 권한 목록에서 제거된 연결 데이터가 DB에서도 삭제되도록 처리했습니다.
   
+```java
+@Table(
+    name = "admin_permission",
+    uniqueConstraints = @UniqueConstraint(
+        name = "uk_admin_permission",
+        columnNames = {"admin_id", "permission_id"}
+    )
+)
+public class AdminPermission {
+    // ...
+}
 ```
+```java
+@OneToMany(
+    mappedBy = "admin",
+    cascade = CascadeType.ALL,
+    orphanRemoval = true
+)
+private Set<AdminPermission> adminPermissions = new LinkedHashSet<>();
+```
+```java
+admin.getAdminPermissions().removeIf(adminPermission -> {
+    Permission permission = adminPermission.getPermission();
 
+    return permission == null
+            || permission.getCode() == null
+            || !requestedCodes.contains(permission.getCode());
+});
+```
+```java
+if (existingCodes.contains(permission.getCode())) {
+    continue;
+}
+
+AdminPermission adminPermission = new AdminPermission();
+adminPermission.setAdmin(admin);
+adminPermission.setPermission(permission);
+admin.getAdminPermissions().add(adminPermission);
 ```
 
 <br/><br/>
@@ -292,13 +328,42 @@ for (AdminPermission adminPermission : admin.getAdminPermissions()) {
 + 고객 등록 / 수정 / 삭제 시 Elasticsearch 인덱스도 함께 저장하거나 삭제하도록 처리했습니다.
 + MySQL 기준 고객 데이터를 Elasticsearch에 다시 반영할 수 있는 수동 동기화 API도 추가했습니다.
   
-```
+```java
+Customer saved = customerRepository.save(customer);
 
+customerSearchRepository.save(
+        customerSearchMapper.toSearchEntity(saved)
+);
+```
+```java
+customer.update(
+        request.getName(),
+        request.getGrade(),
+        request.getPhone(),
+        newInviteCode,
+        request.getNote()
+);
+
+customerSearchRepository.save(
+        customerSearchMapper.toSearchEntity(customer)
+);
+```
+```java
+customerRepository.delete(customer);
+customerSearchRepository.deleteById(id);
+```
+```java
+@PostMapping("/sync")
+@PreAuthorize("hasRole('SUPER_ADMIN')")
+public ResponseEntity<String> sync() {
+    customerService.syncAllToElasticsearch();
+    return ResponseEntity.ok("sync ok");
+}
 ```
 
 <br/><br/>
 
-### [ MySQL과 keycloak 관리자 계정 불일치 문제 ] <br/>
+### [ MySQL과 Keycloak 관리자 계정 불일치 문제 ] <br/>
 
 1) 문제 발생 <br/>
 + 관리자 정보는 MySQL에 저장하고, 실제 로그인 계정은 Keycloak에 생성했습니다.
@@ -317,8 +382,30 @@ for (AdminPermission adminPermission : admin.getAdminPermissions()) {
 + 생성된 Keycloak 사용자 id를 admin.keycloakId에 저장해 MySQL 관리자와 Keycloak 계정을 연결했습니다.
 + 관리자 수정 / 삭제 시에도 MySQL 데이터와 Keycloak 사용자 계정을 함께 반영하도록 처리했습니다.
   
-```
+```java
+Admin savedAdmin = adminRepository.saveAndFlush(admin);
 
+String keycloakId = createKeycloakUser(request);
+savedAdmin.setKeycloakId(keycloakId);
+
+adminRepository.flush();
+```
+```java
+adminRepository.flush();
+updateKeycloakUser(admin, oldUsername, request);
+```
+```java
+String keycloakId = getKeycloakId(admin, admin.getUsername());
+
+adminRepository.delete(admin);
+adminRepository.flush();
+
+deleteKeycloakUser(keycloakId);
+```
+```java
+if (admin.getKeycloakId() == null || admin.getKeycloakId().isBlank()) {
+    admin.setKeycloakId(keycloakId);
+}
 ```
 
 <br/><br/>
