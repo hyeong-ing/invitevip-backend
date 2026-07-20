@@ -87,7 +87,8 @@ public Optional<CustomerResponse> findByCode(String code) {
     return customerRepository.findByInviteCode(InviteCode.of(code))
             .map(customerService::toResponse);
 }
-
+```
+```java
 const grade = (data.grade || "").trim().toUpperCase();
 
 if (grade === "VIP") navigate("/vip");
@@ -110,6 +111,8 @@ else if (grade === "DIAMOND") navigate("/diamond");
 if (customerRepository.existsByInviteCode(inviteCode)) {
     throw new DuplicateCodeException("초대코드가 중복되었습니다.");
 }
+```
+```java
 customerRepository.findByInviteCode(newInviteCode).ifPresent(found -> {
     if (!found.getId().equals(id)) {
         throw new DuplicateCodeException("초대코드가 중복되었습니다.");
@@ -130,7 +133,11 @@ customerRepository.findByInviteCode(newInviteCode).ifPresent(found -> {
 
 ```java
 Customer saved = customerRepository.save(customer);
-customerSearchRepository.save(customerSearchMapper.toSearchEntity(saved));
+
+customerSearchRepository.save(
+        customerSearchMapper.toSearchEntity(saved));
+```
+```java
 customer.update(
         request.getName(),
         request.getGrade(),
@@ -139,7 +146,11 @@ customer.update(
         request.getNote()
 );
 
-customerSearchRepository.save(customerSearchMapper.toSearchEntity(customer));
+customerSearchRepository.save(
+        customerSearchMapper.toSearchEntity(customer)
+);
+```
+```java
 customerRepository.delete(customer);
 customerSearchRepository.deleteById(id);
 ```
@@ -148,7 +159,92 @@ customerSearchRepository.deleteById(id);
 
 ----
 
+4) Elasticsearch 기반 고객 검색 및 초성 검색 <br/>
+고객명, 등급, 연락처, 초대코드, 메모를 검색할 수 있도록 Elasticsearch를 사용했습니다.
 
++ name, note는 한글 검색을 고려해 analyzer를 적용했습니다.
++ 고객 이름에서 초성을 추출해 nameChosung 필드에 저장했습니다.
++ 예를 들어 홍길동은 ㅎㄱㄷ으로 저장되어 초성 검색이 가능합니다.
++ 아래 코드는 검색 조건 중 핵심 부분을 발췌한 예시입니다.
+
+```java
+public CustomerSearchEntity toSearchEntity(Customer customer) {
+    CustomerSearchEntity entity = new CustomerSearchEntity();
+
+    entity.setId(customer.getId());
+    entity.setName(customer.getName());
+    entity.setGrade(customer.getGrade());
+    entity.setPhone(customer.getPhone());
+    entity.setCode(customer.getCode());
+    entity.setNote(customer.getNote());
+    entity.setNameChosung(getChosung(customer.getName()));
+
+    return entity;
+}
+```
+```java
+if (c >= '가' && c <= '힣') {
+    int uniVal = c - 0xAC00;
+    int choIdx = uniVal / 588;
+    sb.append(cho[choIdx]);
+}
+```
+```java
+@Query("""
+{
+  "bool": {
+    "should": [
+      { "match": { "name": "?0" } },
+      { "match": { "note": "?0" } },
+      { "wildcard": { "grade": { "value": "*?0*" } } },
+      { "wildcard": { "phone": { "value": "*?0*" } } },
+      { "wildcard": { "code": { "value": "*?0*" } } },
+      { "wildcard": { "nameChosung": { "value": "*?0*" } } }
+    ],
+    "minimum_should_match": 1
+  }
+}
+""")
+List<CustomerSearchEntity> searchAll(String keyword);
+```
+
+<br/><br/>
+
+----
+
+5) JWT 인증 정보와 DB 권한을 결합한 권한 제어 <br/>
+Keycloak에서 발급받은 JWT를 Spring Security Resource Server가 검증하고 <br/>
+DB에 저장된 관리자 권한을 함께 읽어 API 접근 권한을 제어했습니다.
+
++ JWT의 realm role과 DB에 저장된 관리자 role을 Spring Security 권한 형식인 ROLE_ADMIN, ROLE_SUPER_ADMIN으로 사용합니다.
++ DB의 관리자 권한을 조회해 CUSTOMER_SEARCH, CUSTOMER_ADD, CUSTOMER_EDIT, CUSTOMER_DELETE 권한으로 변환합니다.
++ Controller에서는 @PreAuthorize를 사용해 API별 접근 권한을 분리했습니다.
+
+```java
+authorities.addAll(extractRealmRoles(jwt));
+authorities.addAll(adminAuthorityService.loadAuthorities(jwt));
+```
+```java
+if (admin.getRole() != null) {
+    authorities.add(new SimpleGrantedAuthority("ROLE_" + admin.getRole().name()));
+}
+
+for (AdminPermission adminPermission : admin.getAdminPermissions()) {
+    Permission permission = adminPermission.getPermission();
+
+    if (permission == null || permission.getCode() == null) {
+        continue;
+    }
+
+    authorities.add(new SimpleGrantedAuthority(
+            permission.getCode().trim().toUpperCase()
+    ));
+}
+```
+
+<br/><br/>
+
+----
 
 <br/><br/><br/>
 
